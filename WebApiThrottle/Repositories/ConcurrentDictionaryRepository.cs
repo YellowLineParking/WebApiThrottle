@@ -14,11 +14,6 @@ namespace WebApiThrottle
     {
         private static ConcurrentDictionary<string, ThrottleCounterWrapper> cache = new ConcurrentDictionary<string, ThrottleCounterWrapper>();
 
-        public bool Any(string id)
-        {
-            return cache.ContainsKey(id);
-        }
-
         /// <summary>
         /// Insert or update
         /// </summary>
@@ -59,17 +54,6 @@ namespace WebApiThrottle
             };
 
             cache.AddOrUpdate(id, entry, (k, e) => entry);
-        }
-
-        public void Remove(string id)
-        {
-            var entry = new ThrottleCounterWrapper();
-            cache.TryRemove(id, out entry);
-        }
-
-        public void Clear()
-        {
-            cache.Clear();
         }
 
         [Serializable]

@@ -34,28 +34,9 @@ namespace WebApiThrottle
             }
         }
 
-        public bool Any(string id)
-        {
-            return memCache[id] != null;
-        }
-
         public ThrottleCounter? FirstOrDefault(string id)
         {
             return (ThrottleCounter?)memCache[id];
-        }
-
-        public void Remove(string id)
-        {
-            memCache.Remove(id);
-        }
-
-        public void Clear()
-        {
-            var cacheKeys = memCache.Where(kvp => kvp.Value is ThrottleCounter).Select(kvp => kvp.Key).ToList();
-            foreach (string cacheKey in cacheKeys)
-            {
-                memCache.Remove(cacheKey);
-            }
         }
     }
 }
