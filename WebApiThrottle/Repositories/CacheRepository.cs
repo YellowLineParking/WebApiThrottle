@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading.Tasks;
 using System.Web;
 using System.Web.Caching;
 
@@ -11,7 +12,7 @@ namespace WebApiThrottle
     {
         private static object sync = new object();
 
-        public ThrottleCounter IncrementAndGet(string id, TimeSpan expirationTime)
+        public Task<ThrottleCounter> IncrementAndGetAsync(string id, TimeSpan expirationTime)
         {
             ThrottleCounter currentCounter;
             DateTime now = DateTime.UtcNow;
@@ -50,7 +51,7 @@ namespace WebApiThrottle
                 } 
             }
 
-            return currentCounter;
+            return Task.FromResult(currentCounter);
         }
     }
 }

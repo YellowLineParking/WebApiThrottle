@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading.Tasks;
 
 namespace WebApiThrottle
 {
@@ -33,6 +34,6 @@ namespace WebApiThrottle
         /// though this method is being called for the first time.
         /// </para>
         /// </remarks>
-        ThrottleCounter IncrementAndGet(string id, TimeSpan expirationTime);
+        Task<ThrottleCounter> IncrementAndGetAsync(string id, TimeSpan expirationTime);
     }
 }

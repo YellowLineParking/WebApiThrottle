@@ -1,5 +1,6 @@
 ﻿using StackExchange.Redis;
 using System;
+using System.Threading.Tasks;
 
 namespace WebApiThrottle.RedisRepository
 {
@@ -39,7 +40,7 @@ namespace WebApiThrottle.RedisRepository
             mux = multiplexer;
         }
 
-        public ThrottleCounter IncrementAndGet(string id, TimeSpan expirationTime)
+        public async Task<ThrottleCounter> IncrementAndGetAsync(string id, TimeSpan expirationTime)
         {
             IDatabase db = mux.GetDatabase();
             string startTimeKey = id + "-start";
@@ -49,7 +50,7 @@ namespace WebApiThrottle.RedisRepository
             long count;
             try
             {
-                RedisValueWithExpiry startTimeWithExpiry = db.StringGetWithExpiry(startTimeKey);
+                RedisValueWithExpiry startTimeWithExpiry = await db.StringGetWithExpiryAsync(startTimeKey);
                 RedisValue startTimeString = startTimeWithExpiry.Value;
                 if (!(startTimeString.HasValue && long.TryParse(startTimeString, out startTimeTicks)))
                 {
@@ -57,12 +58,13 @@ namespace WebApiThrottle.RedisRepository
                     // a new period.
                     startTimeTicks = DateTime.UtcNow.Ticks;
                     count = 1;
-                    db.StringSet(countKey, count, expirationTime);
-                    db.StringSet(startTimeKey, startTimeTicks, expirationTime);
+                    await Task.WhenAll(
+                        db.StringSetAsync(countKey, count, expirationTime),
+                        db.StringSetAsync(startTimeKey, startTimeTicks, expirationTime));
                 }
                 else
                 {
-                    count = db.StringIncrement(countKey, 1);
+                    count = await db.StringIncrementAsync(countKey, 1);
                 }
 
                 return new ThrottleCounter

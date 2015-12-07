@@ -51,7 +51,7 @@ namespace WebApiThrottle
         /// Used to log cases where we block users.
         /// </param>
         /// <returns></returns>
-        internal static ThrottleDecision ProcessRequest(
+        internal async static Task<ThrottleDecision> ProcessRequest(
             IPolicyRepository policyRepository,
             ThrottlePolicy policy,
             IThrottleRepository throttleRepository,
@@ -79,52 +79,74 @@ namespace WebApiThrottle
                     defRates.Reverse();
                 }
 
-                // apply policy
-                foreach (var rate in defRates)
-                {
-                    RateLimitPeriod rateLimitPeriod = rate.Key;
-                    long rateLimit = rate.Value;
-
-                    TimeSpan timeSpan = GetTimeSpanFromPeriod(rateLimitPeriod);
-
-                    long adjustedLimit = getAdjustedLimitForPeriod(rateLimitPeriod);
-                    if (adjustedLimit > 0)
+                var throttleCountsAndRates = defRates
+                    .Select(rate =>
                     {
-                        rateLimit = adjustedLimit;
-                    }
 
-                    // apply global rules
-                    ApplyRules(policy, identity, timeSpan, rateLimitPeriod, ref rateLimit);
+                        RateLimitPeriod rateLimitPeriod = rate.Key;
+                        long rateLimit = rate.Value;
 
-                    if (rateLimit > 0)
-                    {
-                        // increment counter
-                        string requestId;
-                        ThrottleCounter throttleCounter = GetThrottleCounter(throttleRepository, policy, identity, timeSpan, rateLimitPeriod, out requestId);
+                        TimeSpan timeSpan = GetTimeSpanFromPeriod(rateLimitPeriod);
 
-                        // check if limit is reached
-                        if (throttleCounter.TotalRequests > rateLimit)
+                        long adjustedLimit = getAdjustedLimitForPeriod(rateLimitPeriod);
+                        if (adjustedLimit > 0)
                         {
-                            // log blocked request
-                            if (logger != null)
-                            {
-                                logger.Log(ComputeLogEntry(requestId, identity, throttleCounter, rateLimitPeriod.ToString(), rateLimit, request));
-                            }
+                            rateLimit = adjustedLimit;
+                        }
 
-                            return new ThrottleDecision
+                        // apply global rules
+                        ApplyRules(policy, identity, timeSpan, rateLimitPeriod, ref rateLimit);
+
+                        if (rateLimit > 0)
+                        {
+                            string requestId = ComputeThrottleKey(policy, identity, rateLimitPeriod);
+                            return new
                             {
-                                RateLimit = rateLimit,
-                                RateLimitPeriod = rateLimitPeriod,
-                                StartOfLimitPeriod = throttleCounter.Timestamp,
-                                RetryAfter = RetryAfterFrom(throttleCounter.Timestamp, rateLimitPeriod)
+                                rate,
+                                rateLimit,
+                                rateLimitPeriod,
+                                requestId,
+                                throttleCountTask = throttleRepository.IncrementAndGetAsync(requestId, timeSpan)
                             };
                         }
+
+                        return null;
+                    })
+                    .Where(x => x != null)
+                    .ToList();
+
+                // apply policy
+                foreach (var item in throttleCountsAndRates)
+                {
+                    RateLimitPeriod rateLimitPeriod = item.rateLimitPeriod;
+                    long rateLimit = item.rateLimit;
+
+                    ThrottleCounter throttleCounter = await item.throttleCountTask;
+
+                    // check if limit is reached
+                    if (throttleCounter.TotalRequests > rateLimit)
+                    {
+                        // log blocked request
+                        if (logger != null)
+                        {
+                            logger.Log(ComputeLogEntry(item.requestId, identity, throttleCounter, rateLimitPeriod.ToString(), rateLimit, request));
+                        }
+
+                        return new ThrottleDecision
+                        {
+                            RateLimit = rateLimit,
+                            RateLimitPeriod = rateLimitPeriod,
+                            StartOfLimitPeriod = throttleCounter.Timestamp,
+                            RetryAfter = RetryAfterFrom(throttleCounter.Timestamp, rateLimitPeriod)
+                        };
                     }
                 }
             }
 
             return null;
         }
+
+
 
         internal static bool IncludeDefaultClientKeyHeaders(string headerName)
         {
@@ -373,18 +395,6 @@ namespace WebApiThrottle
             }
 
             return defRates;
-        }
-
-        private static ThrottleCounter GetThrottleCounter(
-            IThrottleRepository repository,
-            ThrottlePolicy policy,
-            RequestIdentity requestIdentity,
-            TimeSpan timeSpan,
-            RateLimitPeriod period,
-            out string id)
-        {
-            id = ComputeThrottleKey(policy, requestIdentity, period);
-            return repository.IncrementAndGet(id, timeSpan);
         }
 
         private static TimeSpan GetTimeSpanFromPeriod(RateLimitPeriod rateLimitPeriod)

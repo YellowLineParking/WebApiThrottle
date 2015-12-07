@@ -88,6 +88,8 @@ namespace WebApiThrottle
             bool applyThrottling = ApplyThrottling(actionContext, out attrPolicy);
             if (applyThrottling)
             {
+                // ActionFilters don't get to be async, sadly, so we just have to block
+                // the thread until this is done.
                 ThrottlingCore.ThrottleDecision decision = ThrottlingCore.ProcessRequest(
                     policyRepository,
                     policy,
@@ -95,7 +97,7 @@ namespace WebApiThrottle
                     actionContext.Request,
                     ThrottlingCore.GetIdentity(actionContext.Request, IncludeHeaderInClientKey),
                     rateLimitPeriod => attrPolicy.GetLimit(rateLimitPeriod),
-                    logger);
+                    logger).Result;
 
                 if (decision != null)
                 {

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Threading.Tasks;
 
 namespace WebApiThrottle
 {
@@ -10,7 +11,7 @@ namespace WebApiThrottle
     {
         private static ConcurrentDictionary<string, ThrottleCounter> cache = new ConcurrentDictionary<string, ThrottleCounter>();
 
-        public ThrottleCounter IncrementAndGet(string id, TimeSpan expirationTime)
+        public Task<ThrottleCounter> IncrementAndGetAsync(string id, TimeSpan expirationTime)
         {
             ThrottleCounter item = cache.AddOrUpdate(
                 id,
@@ -34,7 +35,7 @@ namespace WebApiThrottle
                     return entry;
                 });
 
-            return item;
+            return Task.FromResult(item);
         }
     }
 }

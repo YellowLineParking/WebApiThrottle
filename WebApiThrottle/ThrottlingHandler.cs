@@ -81,9 +81,9 @@ namespace WebApiThrottle
         /// </summary>
         public HttpStatusCode QuotaExceededResponseCode { get; set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            ThrottlingCore.ThrottleDecision decision = ThrottlingCore.ProcessRequest(
+            ThrottlingCore.ThrottleDecision decision = await ThrottlingCore.ProcessRequest(
                 policyRepository,
                 policy,
                 throttleRepository,
@@ -94,7 +94,7 @@ namespace WebApiThrottle
 
             if (decision == null)
             {
-                return base.SendAsync(request, cancellationToken);
+                return await base.SendAsync(request, cancellationToken);
             }
 
             var message = !string.IsNullOrEmpty(this.QuotaExceededMessage) 
@@ -119,11 +119,11 @@ namespace WebApiThrottle
         }
 
 
-        protected virtual Task<HttpResponseMessage> QuotaExceededResponse(HttpRequestMessage request, object content, HttpStatusCode responseCode, string retryAfter)
+        protected virtual HttpResponseMessage QuotaExceededResponse(HttpRequestMessage request, object content, HttpStatusCode responseCode, string retryAfter)
         {
             var response = request.CreateResponse(responseCode, content);
             response.Headers.Add("Retry-After", new string[] { retryAfter });
-            return Task.FromResult(response);
+            return response;
         }
     }
 }

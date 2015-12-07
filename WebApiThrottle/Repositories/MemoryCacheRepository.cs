@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Runtime.Caching;
+using System.Threading.Tasks;
 
 namespace WebApiThrottle
 {
@@ -12,7 +13,7 @@ namespace WebApiThrottle
 
         ObjectCache memCache = MemoryCache.Default;
 
-        public ThrottleCounter IncrementAndGet(string id, TimeSpan expirationTime)
+        public Task<ThrottleCounter> IncrementAndGetAsync(string id, TimeSpan expirationTime)
         {
             ThrottleCounter currentCounter;
             DateTime now = DateTime.UtcNow;
@@ -51,7 +52,7 @@ namespace WebApiThrottle
                 }
             }
 
-            return currentCounter;
+            return Task.FromResult(currentCounter);
         }
     }
 }

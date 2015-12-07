@@ -84,7 +84,7 @@ namespace WebApiThrottle
             IOwinResponse response = context.Response;
             IOwinRequest request = context.Request;
 
-            ThrottlingCore.ThrottleDecision decision = ThrottlingCore.ProcessRequest(
+            ThrottlingCore.ThrottleDecision decision = await ThrottlingCore.ProcessRequest(
                 policyRepository,
                 policy,
                 throttleRepository,
