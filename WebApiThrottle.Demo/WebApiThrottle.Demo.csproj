@@ -168,7 +168,6 @@
     </Compile>
     <Compile Include="Helpers\CustomThrottleLogger.cs" />
     <Compile Include="Helpers\CustomThrottlingFilter.cs" />
-    <Compile Include="Helpers\CustomThrottlingHandler.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

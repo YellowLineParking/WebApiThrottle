@@ -1,19 +1,15 @@
 ﻿using Microsoft.Owin;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace WebApiThrottle
 {
     public class ThrottlingMiddleware : OwinMiddleware
     {
-        private ThrottlingCore core;
-        private IPolicyRepository policyRepository;
+        private readonly IPolicyRepository policyRepository;
         private ThrottlePolicy policy;
+        private readonly IThrottleRepository throttleRepository;
+        private readonly IThrottleLogger logger;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ThrottlingMiddleware"/> class. 
@@ -24,8 +20,7 @@ namespace WebApiThrottle
             : base(next)
         {
             QuotaExceededResponseCode = (HttpStatusCode)429;
-            Repository = new CacheRepository();
-            core = new ThrottlingCore();
+            throttleRepository = new CacheRepository();
         }
 
         /// <summary>
@@ -33,6 +28,9 @@ namespace WebApiThrottle
         /// Persists the policy object in cache using <see cref="IPolicyRepository"/> implementation.
         /// The policy object can be updated by <see cref="ThrottleManager"/> at runtime. 
         /// </summary>
+        /// <remarks>
+        /// Next OWIN middleware handler in chain.
+        /// </remarks>
         /// <param name="policy">
         /// The policy.
         /// </param>
@@ -45,13 +43,16 @@ namespace WebApiThrottle
         /// <param name="logger">
         /// The logger.
         /// </param>
-        public ThrottlingMiddleware(OwinMiddleware next, ThrottlePolicy policy, IPolicyRepository policyRepository, IThrottleRepository repository, IThrottleLogger logger)
+        public ThrottlingMiddleware(
+            OwinMiddleware next,
+            ThrottlePolicy policy,
+            IPolicyRepository policyRepository,
+            IThrottleRepository repository,
+            IThrottleLogger logger)
             : base(next)
         {
-            core = new ThrottlingCore();
-            core.Repository = repository;
-            Repository = repository;
-            Logger = logger;
+            this.throttleRepository = repository;
+            this.logger = logger;
 
             QuotaExceededResponseCode = (HttpStatusCode)429;
 
@@ -63,34 +64,6 @@ namespace WebApiThrottle
                 policyRepository.Save(ThrottleManager.GetPolicyKey(), policy);
             }
         }
-
-        /// <summary>
-        ///  Gets or sets the throttling rate limits policy repository
-        /// </summary>
-        public IPolicyRepository PolicyRepository
-        {
-            get { return policyRepository; }
-            set { policyRepository = value; }
-        }
-
-        /// <summary>
-        /// Gets or sets the throttling rate limits policy
-        /// </summary>
-        public ThrottlePolicy Policy
-        {
-            get { return policy; }
-            set { policy = value; }
-        }
-
-        /// <summary>
-        /// Gets or sets the throttle metrics storage
-        /// </summary>
-        public IThrottleRepository Repository { get; set; }
-
-        /// <summary>
-        /// Gets or sets an instance of <see cref="IThrottleLogger"/> that logs traffic and blocked requests
-        /// </summary>
-        public IThrottleLogger Logger { get; set; }
 
         /// <summary>
         /// Gets or sets a value that will be used as a formatter for the QuotaExceeded response message.
@@ -108,106 +81,43 @@ namespace WebApiThrottle
 
         public override async Task Invoke(IOwinContext context)
         {
-            var response = context.Response;
-            var request = context.Request;
+            IOwinResponse response = context.Response;
+            IOwinRequest request = context.Request;
 
-            // get policy from repo
-            if (policyRepository != null)
-            {
-                policy = policyRepository.FirstOrDefault(ThrottleManager.GetPolicyKey());
-            }
+            ThrottlingCore.ThrottleDecision decision = ThrottlingCore.ProcessRequest(
+                policyRepository,
+                policy,
+                throttleRepository,
+                null,
+                ThrottlingCore.GetIdentity(request, IncludeHeaderInClientKey),
+                _ => 0,
+                logger);
 
-            if (policy == null || (!policy.IpThrottling && !policy.ClientThrottling && !policy.EndpointThrottling))
-            {
-                await Next.Invoke(context);
-                return;
-            }
-
-            core.Repository = Repository;
-            core.Policy = policy;
-
-            var identity = SetIndentity(request);
-
-            if (core.IsWhitelisted(identity))
+            if (decision == null)
             {
                 await Next.Invoke(context);
                 return;
             }
 
-            TimeSpan timeSpan = TimeSpan.FromSeconds(1);
+            var message = !string.IsNullOrEmpty(this.QuotaExceededMessage)
+                ? this.QuotaExceededMessage
+                : "API calls quota exceeded! maximum admitted {0} per {1}.";
 
-            // get default rates
-            var defRates = core.RatesWithDefaults(Policy.Rates.ToList());
-            if (Policy.StackBlockedRequests)
+            // break execution
+            response.OnSendingHeaders(state =>
             {
-                // all requests including the rejected ones will stack in this order: week, day, hour, min, sec
-                // if a client hits the hour limit then the minutes and seconds counters will expire and will eventually get erased from cache
-                defRates.Reverse();
-            }
+                var resp = (OwinResponse)state;
+                resp.Headers.Add("Retry-After", new string[] { decision.RetryAfter });
+                resp.StatusCode = (int)QuotaExceededResponseCode;
+                resp.ReasonPhrase = string.Format(message, decision.RateLimit, decision.RateLimitPeriod);
+            }, response);
 
-            // apply policy
-            foreach (var rate in defRates)
-            {
-                var rateLimitPeriod = rate.Key;
-                var rateLimit = rate.Value;
-
-                timeSpan = core.GetTimeSpanFromPeriod(rateLimitPeriod);
-
-                // apply global rules
-                core.ApplyRules(identity, timeSpan, rateLimitPeriod, ref rateLimit);
-
-                if (rateLimit > 0)
-                {
-                    // increment counter
-                    string requestId;
-                    ThrottleCounter throttleCounter = core.GetThrottleCounter(identity, timeSpan, rateLimitPeriod, out requestId);
-
-                    // check if limit is reached
-                    if (throttleCounter.TotalRequests > rateLimit)
-                    {
-                        // log blocked request
-                        if (Logger != null)
-                        {
-                            Logger.Log(core.ComputeLogEntry(requestId, identity, throttleCounter, rateLimitPeriod.ToString(), rateLimit, null));
-                        }
-
-                        var message = !string.IsNullOrEmpty(this.QuotaExceededMessage)
-                            ? this.QuotaExceededMessage
-                            : "API calls quota exceeded! maximum admitted {0} per {1}.";
-
-                        // break execution
-                        response.OnSendingHeaders(state =>
-                        {
-                            var resp = (OwinResponse)state;
-                            resp.Headers.Add("Retry-After", new string[] { core.RetryAfterFrom(throttleCounter.Timestamp, rateLimitPeriod) });
-                            resp.StatusCode = (int)QuotaExceededResponseCode;
-                            resp.ReasonPhrase = string.Format(message, rateLimit, rateLimitPeriod);
-                        }, response);
-
-                        return;
-                    }
-                }
-            }
-
-            // no throttling required
-            await Next.Invoke(context);
+            return;
         }
 
-        protected virtual RequestIdentity SetIndentity(IOwinRequest request)
+        protected virtual bool IncludeHeaderInClientKey(string headerName)
         {
-            var entry = new RequestIdentity();
-            entry.ClientIp = request.RemoteIpAddress;
-            entry.Endpoint = request.Uri.AbsolutePath.ToLowerInvariant();
-            entry.ClientKey = request.Headers.Keys.Contains("Authorization-Token")
-                ? request.Headers.GetValues("Authorization-Token").First()
-                : "anon";
-
-            return entry;
-        }
-
-        protected virtual string ComputeThrottleKey(RequestIdentity requestIdentity, RateLimitPeriod period)
-        {
-            return core.ComputeThrottleKey(requestIdentity, period);
+            return ThrottlingCore.IncludeDefaultClientKeyHeaders(headerName);
         }
     }
 }

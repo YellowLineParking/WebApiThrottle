@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
-using System.Net.Http;
-
-namespace WebApiThrottle.Demo.Helpers
+﻿namespace WebApiThrottle.Demo.Helpers
 {
     public class CustomThrottlingFilter : ThrottlingFilter
     {
@@ -14,14 +8,9 @@ namespace WebApiThrottle.Demo.Helpers
             this.QuotaExceededMessage = "API calls quota exceeded! maximum admitted {0} per {1}.";
         }
 
-        protected override RequestIdentity SetIndentity(HttpRequestMessage request)
+        protected override bool IncludeHeaderInClientKey(string headerName)
         {
-            return new RequestIdentity()
-            {
-                ClientKey = request.Headers.Contains("Authorization-Key") ? request.Headers.GetValues("Authorization-Key").First() : "anon",
-                ClientIp = base.GetClientIp(request).ToString(),
-                Endpoint = request.RequestUri.AbsolutePath.ToLowerInvariant()
-            };
+            return headerName == "Authorization-Key";
         }
     }
 }

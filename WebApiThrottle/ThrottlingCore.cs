@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Owin;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -13,13 +14,154 @@ namespace WebApiThrottle
     /// <summary>
     /// Common code shared between ThrottlingHandler and ThrottlingFilter
     /// </summary>
-    internal class ThrottlingCore
+    internal static class ThrottlingCore
     {
-        internal ThrottlePolicy Policy { get; set; }
+        public class ThrottleDecision
+        {
+            public long RateLimit { get; set; }
+            public RateLimitPeriod RateLimitPeriod { get; set; }
+            public DateTime StartOfLimitPeriod { get; set; }
+            public string RetryAfter { get; set; }
+        }
 
-        internal IThrottleRepository Repository { get; set; }
+        /// <summary>
+        /// Common processing for throttling filter/handler/middleware.
+        /// </summary>
+        /// <param name="policyRepository">
+        /// Policy store from which to read policy. Can be null if the <c>policy</c>
+        /// argument is non-null.
+        /// </param>
+        /// <param name="policy">
+        /// A policy to use if the <c>policyRepository</c> argument is null.
+        /// </param>
+        /// <param name="request">
+        /// The request, or null if an <c>HttpRequestMessage</c> is unavailable (e.g., because
+        /// we're using OWIN). This is only used for logging, so passing null is not a big problem.
+        /// </param>
+        /// <param name="identity">
+        /// Information used to distinguish which groups of users have their usage grouped under
+        /// the same counter.
+        /// </param>
+        /// <param name="getAdjustedLimitForPeriod">
+        /// Enables the limit for a particular period to be overridden. (Used by the <see cref="ThrottlingFilter"/>
+        /// because each application of that attribute can specify its own limits that may differ from configured
+        /// policy.)
+        /// </param>
+        /// <param name="logger">
+        /// Used to log cases where we block users.
+        /// </param>
+        /// <returns></returns>
+        internal static ThrottleDecision ProcessRequest(
+            IPolicyRepository policyRepository,
+            ThrottlePolicy policy,
+            IThrottleRepository throttleRepository,
+            HttpRequestMessage request,
+            RequestIdentity identity,
+            Func<RateLimitPeriod, long> getAdjustedLimitForPeriod,
+            IThrottleLogger logger)
+        {
+            // get policy from repo
+            if (policyRepository != null)
+            {
+                policy = policyRepository.FirstOrDefault(ThrottleManager.GetPolicyKey());
+            }
 
-        internal bool ContainsIp(List<string> ipRules, string clientIp)
+            bool applyThrottling = policy.IpThrottling || policy.ClientThrottling || policy.EndpointThrottling;
+            if (applyThrottling && !IsWhitelisted(policy, identity))
+            {
+
+                // get default rates
+                var defRates = RatesWithDefaults(policy.Rates.ToList());
+                if (policy.StackBlockedRequests)
+                {
+                    // all requests including the rejected ones will stack in this order: week, day, hour, min, sec
+                    // if a client hits the hour limit then the minutes and seconds counters will expire and will eventually get erased from cache
+                    defRates.Reverse();
+                }
+
+                // apply policy
+                foreach (var rate in defRates)
+                {
+                    RateLimitPeriod rateLimitPeriod = rate.Key;
+                    long rateLimit = rate.Value;
+
+                    TimeSpan timeSpan = GetTimeSpanFromPeriod(rateLimitPeriod);
+
+                    long adjustedLimit = getAdjustedLimitForPeriod(rateLimitPeriod);
+                    if (adjustedLimit > 0)
+                    {
+                        rateLimit = adjustedLimit;
+                    }
+
+                    // apply global rules
+                    ApplyRules(policy, identity, timeSpan, rateLimitPeriod, ref rateLimit);
+
+                    if (rateLimit > 0)
+                    {
+                        // increment counter
+                        string requestId;
+                        ThrottleCounter throttleCounter = GetThrottleCounter(throttleRepository, policy, identity, timeSpan, rateLimitPeriod, out requestId);
+
+                        // check if limit is reached
+                        if (throttleCounter.TotalRequests > rateLimit)
+                        {
+                            // log blocked request
+                            if (logger != null)
+                            {
+                                logger.Log(ComputeLogEntry(requestId, identity, throttleCounter, rateLimitPeriod.ToString(), rateLimit, request));
+                            }
+
+                            return new ThrottleDecision
+                            {
+                                RateLimit = rateLimit,
+                                RateLimitPeriod = rateLimitPeriod,
+                                StartOfLimitPeriod = throttleCounter.Timestamp,
+                                RetryAfter = RetryAfterFrom(throttleCounter.Timestamp, rateLimitPeriod)
+                            };
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        internal static bool IncludeDefaultClientKeyHeaders(string headerName)
+        {
+            // Note: Stefan Prodan's original used "Authorization-Token" as the default header
+            // from which the ClientKey was calculated. But that's not a standard HTTP header.
+            // So I've changed this to Authorization, which is used for all standard auth,
+            // including OAuth 2.
+            return headerName == "Authorization";
+        }
+
+        internal static RequestIdentity GetIdentity(HttpRequestMessage request, Func<string, bool> includeHeaderInClientKey)
+        {
+            var entry = new RequestIdentity();
+            entry.ClientIp = GetClientIp(request).ToString();
+            entry.Endpoint = request.RequestUri.AbsolutePath.ToLowerInvariant();
+            entry.ClientKey = request.Headers
+                .Where(h => includeHeaderInClientKey(h.Key))
+                .Aggregate(default(string), (k, h) => k + h.Value.First())
+                ?? "anon";
+
+            return entry;
+        }
+
+        internal static RequestIdentity GetIdentity(IOwinRequest request, Func<string, bool> includeHeaderInClientKey)
+        {
+            var entry = new RequestIdentity();
+            entry.ClientIp = request.RemoteIpAddress;
+            entry.Endpoint = request.Uri.AbsolutePath.ToLowerInvariant();
+            entry.ClientKey = request.Headers
+                .Where(h => includeHeaderInClientKey(h.Key))
+                .Aggregate(default(string), (k, h) => k + h.Value.First())
+                ?? "anon";
+
+            return entry;
+        }
+
+        private static bool ContainsIp(List<string> ipRules, string clientIp)
         {
             var ip = IPAddress.Parse(clientIp);
             if (ipRules != null && ipRules.Any())
@@ -37,7 +179,7 @@ namespace WebApiThrottle
             return false;
         }
 
-        internal bool ContainsIp(List<string> ipRules, string clientIp, out string rule)
+        private static bool ContainsIp(List<string> ipRules, string clientIp, out string rule)
         {
             rule = null;
             var ip = IPAddress.Parse(clientIp);
@@ -57,7 +199,7 @@ namespace WebApiThrottle
             return false;
         }
 
-        internal IPAddress GetClientIp(HttpRequestMessage request)
+        private static IPAddress GetClientIp(HttpRequestMessage request)
         {
             IPAddress ipAddress;
 
@@ -95,7 +237,7 @@ namespace WebApiThrottle
             return null;
         }
 
-        internal ThrottleLogEntry ComputeLogEntry(string requestId, RequestIdentity identity, ThrottleCounter throttleCounter, string rateLimitPeriod, long rateLimit, HttpRequestMessage request)
+        private static ThrottleLogEntry ComputeLogEntry(string requestId, RequestIdentity identity, ThrottleCounter throttleCounter, string rateLimitPeriod, long rateLimit, HttpRequestMessage request)
         {
             return new ThrottleLogEntry
             {
@@ -112,7 +254,7 @@ namespace WebApiThrottle
             };
         }
 
-        internal string RetryAfterFrom(DateTime timestamp, RateLimitPeriod period)
+        private static string RetryAfterFrom(DateTime timestamp, RateLimitPeriod period)
         {
             var secondsPast = Convert.ToInt32((DateTime.UtcNow - timestamp).TotalSeconds);
             var retryAfter = 1;
@@ -135,28 +277,28 @@ namespace WebApiThrottle
             return retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        internal bool IsWhitelisted(RequestIdentity requestIdentity)
+        private static bool IsWhitelisted(ThrottlePolicy policy, RequestIdentity requestIdentity)
         {
-            if (Policy.IpThrottling)
+            if (policy.IpThrottling)
             {
-                if (Policy.IpWhitelist != null && ContainsIp(Policy.IpWhitelist, requestIdentity.ClientIp))
+                if (policy.IpWhitelist != null && ContainsIp(policy.IpWhitelist, requestIdentity.ClientIp))
                 {
                     return true;
                 }
             }
 
-            if (Policy.ClientThrottling)
+            if (policy.ClientThrottling)
             {
-                if (Policy.ClientWhitelist != null && Policy.ClientWhitelist.Contains(requestIdentity.ClientKey))
+                if (policy.ClientWhitelist != null && policy.ClientWhitelist.Contains(requestIdentity.ClientKey))
                 {
                     return true;
                 }
             }
 
-            if (Policy.EndpointThrottling)
+            if (policy.EndpointThrottling)
             {
-                if (Policy.EndpointWhitelist != null
-                    && Policy.EndpointWhitelist.Any(x => requestIdentity.Endpoint.Contains(x.ToLowerInvariant())))
+                if (policy.EndpointWhitelist != null
+                    && policy.EndpointWhitelist.Any(x => requestIdentity.Endpoint.Contains(x.ToLowerInvariant())))
                 {
                     return true;
                 }
@@ -165,24 +307,24 @@ namespace WebApiThrottle
             return false;
         }
 
-        internal string ComputeThrottleKey(RequestIdentity requestIdentity, RateLimitPeriod period)
+        private static string ComputeThrottleKey(ThrottlePolicy policy, RequestIdentity requestIdentity, RateLimitPeriod period)
         {
             var keyValues = new List<string>()
                 {
                     ThrottleManager.GetThrottleKey()
                 };
 
-            if (Policy.IpThrottling)
+            if (policy.IpThrottling)
             {
                 keyValues.Add(requestIdentity.ClientIp);
             }
 
-            if (Policy.ClientThrottling)
+            if (policy.ClientThrottling)
             {
                 keyValues.Add(requestIdentity.ClientKey);
             }
 
-            if (Policy.EndpointThrottling)
+            if (policy.EndpointThrottling)
             {
                 keyValues.Add(requestIdentity.Endpoint);
             }
@@ -203,7 +345,7 @@ namespace WebApiThrottle
             return hex;
         }
 
-        internal List<KeyValuePair<RateLimitPeriod, long>> RatesWithDefaults(List<KeyValuePair<RateLimitPeriod, long>> defRates)
+        private static List<KeyValuePair<RateLimitPeriod, long>> RatesWithDefaults(List<KeyValuePair<RateLimitPeriod, long>> defRates)
         {
             if (!defRates.Any(x => x.Key == RateLimitPeriod.Second))
             {
@@ -233,13 +375,19 @@ namespace WebApiThrottle
             return defRates;
         }
 
-        internal ThrottleCounter GetThrottleCounter(RequestIdentity requestIdentity, TimeSpan timeSpan, RateLimitPeriod period, out string id)
+        private static ThrottleCounter GetThrottleCounter(
+            IThrottleRepository repository,
+            ThrottlePolicy policy,
+            RequestIdentity requestIdentity,
+            TimeSpan timeSpan,
+            RateLimitPeriod period,
+            out string id)
         {
-            id = ComputeThrottleKey(requestIdentity, period);
-            return Repository.IncrementAndGet(id, timeSpan);
+            id = ComputeThrottleKey(policy, requestIdentity, period);
+            return repository.IncrementAndGet(id, timeSpan);
         }
 
-        internal TimeSpan GetTimeSpanFromPeriod(RateLimitPeriod rateLimitPeriod)
+        private static TimeSpan GetTimeSpanFromPeriod(RateLimitPeriod rateLimitPeriod)
         {
             var timeSpan = TimeSpan.FromSeconds(1);
 
@@ -265,12 +413,12 @@ namespace WebApiThrottle
             return timeSpan;
         }
 
-        internal void ApplyRules(RequestIdentity identity, TimeSpan timeSpan, RateLimitPeriod rateLimitPeriod, ref long rateLimit)
+        private static void ApplyRules(ThrottlePolicy policy, RequestIdentity identity, TimeSpan timeSpan, RateLimitPeriod rateLimitPeriod, ref long rateLimit)
         {
             // apply endpoint rate limits
-            if (Policy.EndpointRules != null)
+            if (policy.EndpointRules != null)
             {
-                var rules = Policy.EndpointRules.Where(x => identity.Endpoint.Contains(x.Key.ToLowerInvariant())).ToList();
+                var rules = policy.EndpointRules.Where(x => identity.Endpoint.Contains(x.Key.ToLowerInvariant())).ToList();
                 if (rules.Any())
                 {
                     // get the lower limit from all applying rules
@@ -284,9 +432,9 @@ namespace WebApiThrottle
             }
 
             // apply custom rate limit for clients that will override endpoint limits
-            if (Policy.ClientRules != null && Policy.ClientRules.Keys.Contains(identity.ClientKey))
+            if (policy.ClientRules != null && policy.ClientRules.Keys.Contains(identity.ClientKey))
             {
-                var limit = Policy.ClientRules[identity.ClientKey].GetLimit(rateLimitPeriod);
+                var limit = policy.ClientRules[identity.ClientKey].GetLimit(rateLimitPeriod);
                 if (limit > 0)
                 {
                     rateLimit = limit;
@@ -295,9 +443,9 @@ namespace WebApiThrottle
 
             // enforce ip rate limit as is most specific 
             string ipRule = null;
-            if (Policy.IpRules != null && ContainsIp(Policy.IpRules.Keys.ToList(), identity.ClientIp, out ipRule))
+            if (policy.IpRules != null && ContainsIp(policy.IpRules.Keys.ToList(), identity.ClientIp, out ipRule))
             {
-                var limit = Policy.IpRules[ipRule].GetLimit(rateLimitPeriod);
+                var limit = policy.IpRules[ipRule].GetLimit(rateLimitPeriod);
                 if (limit > 0)
                 {
                     rateLimit = limit;
