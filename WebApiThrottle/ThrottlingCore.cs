@@ -15,8 +15,6 @@ namespace WebApiThrottle
     /// </summary>
     internal class ThrottlingCore
     {
-        private static readonly object ProcessLocker = new object();
-
         internal ThrottlePolicy Policy { get; set; }
 
         internal IThrottleRepository Repository { get; set; }
@@ -235,15 +233,10 @@ namespace WebApiThrottle
             return defRates;
         }
 
-        internal ThrottleCounter ProcessRequest(RequestIdentity requestIdentity, TimeSpan timeSpan, RateLimitPeriod period, out string id)
+        internal ThrottleCounter GetThrottleCounter(RequestIdentity requestIdentity, TimeSpan timeSpan, RateLimitPeriod period, out string id)
         {
             id = ComputeThrottleKey(requestIdentity, period);
-
-            // serial reads and writes
-            lock (ProcessLocker)
-            {
-                return Repository.IncrementAndGet(id, timeSpan);
-            }
+            return Repository.IncrementAndGet(id, timeSpan);
         }
 
         internal TimeSpan GetTimeSpanFromPeriod(RateLimitPeriod rateLimitPeriod)

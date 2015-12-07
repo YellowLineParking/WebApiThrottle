@@ -165,7 +165,7 @@ namespace WebApiThrottle
                 {
                     // increment counter
                     string requestId;
-                    ThrottleCounter throttleCounter = core.ProcessRequest(identity, timeSpan, rateLimitPeriod, out requestId);
+                    ThrottleCounter throttleCounter = core.GetThrottleCounter(identity, timeSpan, rateLimitPeriod, out requestId);
 
                     // check if limit is reached
                     if (throttleCounter.TotalRequests > rateLimit)
