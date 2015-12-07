@@ -237,40 +237,13 @@ namespace WebApiThrottle
 
         internal ThrottleCounter ProcessRequest(RequestIdentity requestIdentity, TimeSpan timeSpan, RateLimitPeriod period, out string id)
         {
-            var throttleCounter = new ThrottleCounter()
-            {
-                Timestamp = DateTime.UtcNow,
-                TotalRequests = 1
-            };
-
             id = ComputeThrottleKey(requestIdentity, period);
 
             // serial reads and writes
             lock (ProcessLocker)
             {
-                var entry = Repository.FirstOrDefault(id);
-                if (entry.HasValue)
-                {
-                    // entry has not expired
-                    if (entry.Value.Timestamp + timeSpan >= DateTime.UtcNow)
-                    {
-                        // increment request count
-                        var totalRequests = entry.Value.TotalRequests + 1;
-
-                        // deep copy
-                        throttleCounter = new ThrottleCounter
-                        {
-                            Timestamp = entry.Value.Timestamp,
-                            TotalRequests = totalRequests
-                        };
-                    }
-                }
-
-                // stores: id (string) - timestamp (datetime) - total (long)
-                Repository.Save(id, throttleCounter, timeSpan);
+                return Repository.IncrementAndGet(id, timeSpan);
             }
-
-            return throttleCounter;
         }
 
         internal TimeSpan GetTimeSpanFromPeriod(RateLimitPeriod rateLimitPeriod)

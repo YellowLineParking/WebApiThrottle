@@ -1,8 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Web;
 using System.Web.Caching;
 
@@ -13,40 +9,48 @@ namespace WebApiThrottle
     /// </summary>
     public class CacheRepository : IThrottleRepository
     {
-        /// <summary>
-        /// Insert or update
-        /// </summary>
-        /// <param name="id">
-        /// The id.
-        /// </param>
-        /// <param name="throttleCounter">
-        /// The throttle Counter.
-        /// </param>
-        /// <param name="expirationTime">
-        /// The expiration Time.
-        /// </param>
-        public void Save(string id, ThrottleCounter throttleCounter, TimeSpan expirationTime)
-        {
-            if (HttpContext.Current.Cache[id] != null)
-            {
-                HttpContext.Current.Cache[id] = throttleCounter;
-            }
-            else
-            {
-                HttpContext.Current.Cache.Add(
-                    id,
-                    throttleCounter,
-                    null,
-                    Cache.NoAbsoluteExpiration,
-                    expirationTime,
-                    CacheItemPriority.Low,
-                    null);
-            }
-        }
+        private static object sync = new object();
 
-        public ThrottleCounter? FirstOrDefault(string id)
+        public ThrottleCounter IncrementAndGet(string id, TimeSpan expirationTime)
         {
-            return (ThrottleCounter?)HttpContext.Current.Cache[id];
+            ThrottleCounter currentCounter;
+            DateTime now = DateTime.UtcNow;
+            lock (sync)
+            {
+                object currentEntry = HttpContext.Current.Cache[id];
+                if (currentEntry != null)
+                {
+                    currentCounter = (ThrottleCounter) currentEntry;
+                    if (currentCounter.HasExpired(expirationTime))
+                    {
+                        currentCounter.Timestamp = now;
+                        currentCounter.TotalRequests = 1;
+                    }
+                    else
+                    {
+                        currentCounter.TotalRequests += 1;
+                    }
+                    HttpContext.Current.Cache[id] = currentCounter;
+                }
+                else
+                {
+                    currentCounter = new ThrottleCounter
+                    {
+                        Timestamp = now,
+                        TotalRequests = 1
+                    };
+                    HttpContext.Current.Cache.Add(
+                        id,
+                        currentCounter,
+                        null,
+                        now + expirationTime,
+                        Cache.NoSlidingExpiration,
+                        CacheItemPriority.Low,
+                        null);
+                } 
+            }
+
+            return currentCounter;
         }
     }
 }

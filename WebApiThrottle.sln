@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 2013
-VisualStudioVersion = 12.0.30110.0
+# Visual Studio 14
+VisualStudioVersion = 14.0.24720.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebApiThrottle.Demo", "WebApiThrottle.Demo\WebApiThrottle.Demo.csproj", "{B9BC1965-4DBD-413C-83D5-5FD9E819DCCE}"
 EndProject
@@ -21,6 +21,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".nuspec", ".nuspec", "{2CF9
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebApiThrottler.SelfHostOwinDemo", "WebApiThrottler.SelfHostOwinDemo\WebApiThrottler.SelfHostOwinDemo.csproj", "{22B91BA0-EFC9-4AF8-A24B-CF1CB476A50D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebApiThrottle.RedisRepository", "WebApiThrottle.RedisRepository\WebApiThrottle.RedisRepository.csproj", "{E592E065-957F-48E3-9197-7652F93E169C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,6 +41,10 @@ Global
 		{22B91BA0-EFC9-4AF8-A24B-CF1CB476A50D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{22B91BA0-EFC9-4AF8-A24B-CF1CB476A50D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{22B91BA0-EFC9-4AF8-A24B-CF1CB476A50D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E592E065-957F-48E3-9197-7652F93E169C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E592E065-957F-48E3-9197-7652F93E169C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E592E065-957F-48E3-9197-7652F93E169C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E592E065-957F-48E3-9197-7652F93E169C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

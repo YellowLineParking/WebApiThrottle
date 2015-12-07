@@ -69,6 +69,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Attributes\DisableThrottingAttribute.cs" />
+    <Compile Include="Models\ThrottleCounterExtensions.cs" />
     <Compile Include="Repositories\IPolicyRepository.cs" />
     <Compile Include="Repositories\PolicyMemoryCacheRepository.cs" />
     <Compile Include="Repositories\PolicyCacheRepository.cs" />

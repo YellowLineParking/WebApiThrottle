@@ -170,13 +170,7 @@ namespace WebApiThrottle
                         {
                             // increment counter
                             string requestId;
-                            var throttleCounter = core.ProcessRequest(identity, timeSpan, rateLimitPeriod, out requestId);
-
-                            // check if key expired
-                            if (throttleCounter.Timestamp + timeSpan < DateTime.UtcNow)
-                            {
-                                continue;
-                            }
+                            ThrottleCounter throttleCounter = core.ProcessRequest(identity, timeSpan, rateLimitPeriod, out requestId);
 
                             // check if limit is reached
                             if (throttleCounter.TotalRequests > rateLimit)

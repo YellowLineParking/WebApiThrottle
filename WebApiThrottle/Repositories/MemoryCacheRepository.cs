@@ -1,9 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.Caching;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace WebApiThrottle
 {
@@ -12,31 +8,50 @@ namespace WebApiThrottle
     /// </summary>
     public class MemoryCacheRepository : IThrottleRepository
     {
+        private static object sync = new object();
+
         ObjectCache memCache = MemoryCache.Default;
 
-        /// <summary>
-        /// Insert or update
-        /// </summary>
-        public void Save(string id, ThrottleCounter throttleCounter, TimeSpan expirationTime)
+        public ThrottleCounter IncrementAndGet(string id, TimeSpan expirationTime)
         {
-            if (memCache[id] != null)
+            ThrottleCounter currentCounter;
+            DateTime now = DateTime.UtcNow;
+            lock (sync)
             {
-                memCache[id] = throttleCounter;
-            }
-            else
-            {
-                memCache.Add(
-                    id,
-                    throttleCounter, new CacheItemPolicy()
+                object currentEntry = memCache[id];
+                if (currentEntry != null)
+                {
+                    currentCounter = (ThrottleCounter) currentEntry;
+                    if (currentCounter.HasExpired(expirationTime))
                     {
-                        SlidingExpiration = expirationTime
-                    });
+                        currentCounter.Timestamp = now;
+                        currentCounter.TotalRequests = 1;
+                    }
+                    else
+                    {
+                        currentCounter.TotalRequests += 1;
+                    }
+                    memCache[id] = currentCounter;
+                }
+                else
+                {
+                    currentCounter = new ThrottleCounter
+                    {
+                        Timestamp = now,
+                        TotalRequests = 1
+                    };
+                    memCache.Add(
+                        id,
+                        currentCounter,
+                        new CacheItemPolicy
+                        {
+                            AbsoluteExpiration = now + expirationTime
+                        });
+                
+                }
             }
-        }
 
-        public ThrottleCounter? FirstOrDefault(string id)
-        {
-            return (ThrottleCounter?)memCache[id];
+            return currentCounter;
         }
     }
 }
