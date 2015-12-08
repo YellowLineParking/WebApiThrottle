@@ -1,4 +1,5 @@
-﻿using System.Web.Http.Tracing;
+﻿using System.Net.Http;
+using System.Web.Http.Tracing;
 
 namespace WebApiThrottle
 {
@@ -16,7 +17,7 @@ namespace WebApiThrottle
             if (null != traceWriter)
             {
                 traceWriter.Info(
-                    entry.Request, 
+                    entry.Request as HttpRequestMessage, 
                     "WebApiThrottle",
                     "{0} Request {1} from {2} has been throttled (blocked), quota {3}/{4} exceeded by {5}",
                     entry.LogDate,

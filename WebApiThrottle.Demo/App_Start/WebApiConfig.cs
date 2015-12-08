@@ -43,14 +43,14 @@ namespace WebApiThrottle.Demo
                     IpWhitelist = new List<string> { "127.0.0.1", "192.168.0.0/24" },
 
                     //scope to clients (if IP throttling is applied then the scope becomes a combination of IP and client key)
-                    ClientThrottling = true,
-                    ClientRules = new Dictionary<string, RateLimits>
+                    ClientTypeThrottling = true,
+                    ClientTypeRules = new Dictionary<string, RateLimits>
                     { 
                         { "api-client-key-1", new RateLimits { PerMinute = 60, PerHour = 600 } },
                         { "api-client-key-9", new RateLimits { PerDay = 5000 } }
                     },
                     //white list API keys that don’t require throttling
-                    ClientWhitelist = new List<string> { "admin-key" },
+                    ClientTypeWhitelist = new List<string> { "admin-key" },
 
                     //scope to endpoints
                     EndpointThrottling = true,
@@ -85,14 +85,14 @@ namespace WebApiThrottle.Demo
             //        IpWhitelist = new List<string> { "127.0.0.1", "192.168.0.0/24" },
 
             //        //scope to clients (if IP throttling is applied then the scope becomes a combination of IP and client key)
-            //        ClientThrottling = true,
-            //        ClientRules = new Dictionary<string, RateLimits>
+            //        ClientTypeThrottling = true,
+            //        ClientTypeRules = new Dictionary<string, RateLimits>
             //        { 
             //            { "api-client-key-1", new RateLimits { PerMinute = 60, PerHour = 600 } },
             //            { "api-client-key-9", new RateLimits { PerDay = 5000 } }
             //        },
             //        //white list API keys that don’t require throttling
-            //        ClientWhitelist = new List<string> { "admin-key" },
+            //        ClientTypeWhitelist = new List<string> { "admin-key" },
 
             //        //Endpoint rate limits will be loaded from EnableThrottling attribute
             //        EndpointThrottling = true

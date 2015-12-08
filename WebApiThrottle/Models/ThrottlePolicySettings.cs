@@ -21,7 +21,9 @@ namespace WebApiThrottle
 
         public bool IpThrottling { get; set; }
 
-        public bool ClientThrottling { get; set; }
+        public bool ClientTypeThrottling { get; set; }
+
+        public bool UserIdThrottling { get; set; }
 
         public bool EndpointThrottling { get; set; }
 

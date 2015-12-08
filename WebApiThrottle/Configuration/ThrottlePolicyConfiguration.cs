@@ -68,12 +68,21 @@ namespace WebApiThrottle
             }
         }
 
-        [ConfigurationProperty("clientThrottling", DefaultValue = "false", IsRequired = false)]
-        public bool ClientThrottling
+        [ConfigurationProperty("clientTypeThrottling", DefaultValue = "false", IsRequired = false)]
+        public bool ClientTypeThrottling
         {
             get
             {
-                return (bool)this["clientThrottling"];
+                return (bool)this["clientTypeThrottling"];
+            }
+        }
+
+        [ConfigurationProperty("userIdThrottling", DefaultValue = "false", IsRequired = false)]
+        public bool UserIdThrottling
+        {
+            get
+            {
+                return (bool) this["userIdThrottling"];
             }
         }
 

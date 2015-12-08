@@ -16,8 +16,8 @@ namespace WebApiThrottle
         {
             IpWhitelist = new List<string>();
             IpRules = new Dictionary<string, RateLimits>();
-            ClientWhitelist = new List<string>();
-            ClientRules = new Dictionary<string, RateLimits>();
+            ClientTypeWhitelist = new List<string>();
+            ClientTypeRules = new Dictionary<string, RateLimits>();
             EndpointWhitelist = new List<string>();
             EndpointRules = new Dictionary<string, RateLimits>();
             Rates = new Dictionary<RateLimitPeriod, long>();
@@ -69,11 +69,17 @@ namespace WebApiThrottle
         /// <summary>
         /// Gets or sets a value indicating whether client key throttling is enabled.
         /// </summary>
-        public bool ClientThrottling { get; set; }
+        public bool ClientTypeThrottling { get; set; }
 
-        public List<string> ClientWhitelist { get; set; }
+        public List<string> ClientTypeWhitelist { get; set; }
 
-        public IDictionary<string, RateLimits> ClientRules { get; set; }
+        public IDictionary<string, RateLimits> ClientTypeRules { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether throttling counts should be partitioned
+        /// based on the user ID.
+        /// </summary>
+        public bool UserIdThrottling { get; set; }
 
         /// <summary>
         /// Gets or sets a value indicating whether route throttling is enabled
@@ -105,16 +111,17 @@ namespace WebApiThrottle
                perWeek: settings.LimitPerWeek);
 
             policy.IpThrottling = settings.IpThrottling;
-            policy.ClientThrottling = settings.ClientThrottling;
+            policy.ClientTypeThrottling = settings.ClientTypeThrottling;
+            policy.UserIdThrottling = settings.UserIdThrottling;
             policy.EndpointThrottling = settings.EndpointThrottling;
             policy.StackBlockedRequests = settings.StackBlockedRequests;
 
             policy.IpRules = new Dictionary<string, RateLimits>();
-            policy.ClientRules = new Dictionary<string, RateLimits>();
+            policy.ClientTypeRules = new Dictionary<string, RateLimits>();
             policy.EndpointRules = new Dictionary<string, RateLimits>();
             policy.EndpointWhitelist = new List<string>();
             policy.IpWhitelist = new List<string>();
-            policy.ClientWhitelist = new List<string>();
+            policy.ClientTypeWhitelist = new List<string>();
 
             foreach (var item in rules)
             {
@@ -132,8 +139,8 @@ namespace WebApiThrottle
                     case ThrottlePolicyType.IpThrottling:
                         policy.IpRules.Add(item.Entry, rateLimit);
                         break;
-                    case ThrottlePolicyType.ClientThrottling:
-                        policy.ClientRules.Add(item.Entry, rateLimit);
+                    case ThrottlePolicyType.ClientTypeThrottling:
+                        policy.ClientTypeRules.Add(item.Entry, rateLimit);
                         break;
                     case ThrottlePolicyType.EndpointThrottling:
                         policy.EndpointRules.Add(item.Entry, rateLimit);
@@ -144,7 +151,7 @@ namespace WebApiThrottle
             if (whitelists != null)
             {
                 policy.IpWhitelist.AddRange(whitelists.Where(x => x.PolicyType == ThrottlePolicyType.IpThrottling).Select(x => x.Entry));
-                policy.ClientWhitelist.AddRange(whitelists.Where(x => x.PolicyType == ThrottlePolicyType.ClientThrottling).Select(x => x.Entry));
+                policy.ClientTypeWhitelist.AddRange(whitelists.Where(x => x.PolicyType == ThrottlePolicyType.ClientTypeThrottling).Select(x => x.Entry));
                 policy.EndpointWhitelist.AddRange(whitelists.Where(x => x.PolicyType == ThrottlePolicyType.EndpointThrottling).Select(x => x.Entry));
             }
             return policy;

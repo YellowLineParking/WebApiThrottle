@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security.Claims;
 using System.ServiceModel.Channels;
 using System.Text;
 using System.Threading.Tasks;
@@ -33,6 +34,9 @@ namespace WebApiThrottle
         /// </param>
         /// <param name="policy">
         /// A policy to use if the <c>policyRepository</c> argument is null.
+        /// </param>
+        /// <param name="throttleRepository">
+        /// Store for throttle counts.
         /// </param>
         /// <param name="request">
         /// The request, or null if an <c>HttpRequestMessage</c> is unavailable (e.g., because
@@ -66,7 +70,7 @@ namespace WebApiThrottle
                 policy = policyRepository.FirstOrDefault(ThrottleManager.GetPolicyKey());
             }
 
-            bool applyThrottling = policy.IpThrottling || policy.ClientThrottling || policy.EndpointThrottling;
+            bool applyThrottling = policy.IpThrottling || policy.ClientTypeThrottling || policy.EndpointThrottling || policy.UserIdThrottling;
             if (applyThrottling && !IsWhitelisted(policy, identity))
             {
 
@@ -162,10 +166,28 @@ namespace WebApiThrottle
             var entry = new RequestIdentity();
             entry.ClientIp = GetClientIp(request).ToString();
             entry.Endpoint = request.RequestUri.AbsolutePath.ToLowerInvariant();
-            entry.ClientKey = request.Headers
+            entry.ClientTypeKey = request.Headers
                 .Where(h => includeHeaderInClientKey(h.Key))
                 .Aggregate(default(string), (k, h) => k + h.Value.First())
                 ?? "anon";
+
+            ClaimsIdentity identity;
+            object owinContextObj;
+            if (request.Properties.TryGetValue("MS_OwinContext", out owinContextObj))
+            {
+                var owinContext = (OwinContext) owinContextObj;
+                identity = owinContext.Authentication?.User?.Identity as ClaimsIdentity;
+            }
+            else
+            {
+                identity = request.GetUserPrincipal()?.Identity as ClaimsIdentity;
+            }
+
+            if (identity != null)
+            {
+                entry.UserId = identity.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+                entry.UserName = identity.Name;
+            }
 
             return entry;
         }
@@ -175,10 +197,17 @@ namespace WebApiThrottle
             var entry = new RequestIdentity();
             entry.ClientIp = request.RemoteIpAddress;
             entry.Endpoint = request.Uri.AbsolutePath.ToLowerInvariant();
-            entry.ClientKey = request.Headers
+            entry.ClientTypeKey = request.Headers
                 .Where(h => includeHeaderInClientKey(h.Key))
                 .Aggregate(default(string), (k, h) => k + h.Value.First())
                 ?? "anon";
+
+            ClaimsIdentity identity = request.User?.Identity as ClaimsIdentity;
+            if (identity != null)
+            {
+                entry.UserId = identity.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+                entry.UserName = identity.Name;
+            }
 
             return entry;
         }
@@ -259,12 +288,20 @@ namespace WebApiThrottle
             return null;
         }
 
-        private static ThrottleLogEntry ComputeLogEntry(string requestId, RequestIdentity identity, ThrottleCounter throttleCounter, string rateLimitPeriod, long rateLimit, HttpRequestMessage request)
+        private static ThrottleLogEntry ComputeLogEntry(
+            string requestId,
+            RequestIdentity identity,
+            ThrottleCounter throttleCounter,
+            string rateLimitPeriod,
+            long rateLimit,
+            object request)
         {
             return new ThrottleLogEntry
             {
                 ClientIp = identity.ClientIp,
-                ClientKey = identity.ClientKey,
+                ClientTypeKey = identity.ClientTypeKey,
+                UserId = identity.UserId,
+                UserName = identity.UserName,
                 Endpoint = identity.Endpoint,
                 LogDate = DateTime.UtcNow,
                 RateLimit = rateLimit,
@@ -309,9 +346,9 @@ namespace WebApiThrottle
                 }
             }
 
-            if (policy.ClientThrottling)
+            if (policy.ClientTypeThrottling)
             {
-                if (policy.ClientWhitelist != null && policy.ClientWhitelist.Contains(requestIdentity.ClientKey))
+                if (policy.ClientTypeWhitelist != null && policy.ClientTypeWhitelist.Contains(requestIdentity.ClientTypeKey))
                 {
                     return true;
                 }
@@ -341,9 +378,14 @@ namespace WebApiThrottle
                 keyValues.Add(requestIdentity.ClientIp);
             }
 
-            if (policy.ClientThrottling)
+            if (policy.ClientTypeThrottling)
             {
-                keyValues.Add(requestIdentity.ClientKey);
+                keyValues.Add(requestIdentity.ClientTypeKey);
+            }
+
+            if (policy.UserIdThrottling)
+            {
+                keyValues.Add(requestIdentity.UserId);
             }
 
             if (policy.EndpointThrottling)
@@ -442,9 +484,9 @@ namespace WebApiThrottle
             }
 
             // apply custom rate limit for clients that will override endpoint limits
-            if (policy.ClientRules != null && policy.ClientRules.Keys.Contains(identity.ClientKey))
+            if (policy.ClientTypeRules != null && policy.ClientTypeRules.Keys.Contains(identity.ClientTypeKey))
             {
-                var limit = policy.ClientRules[identity.ClientKey].GetLimit(rateLimitPeriod);
+                var limit = policy.ClientTypeRules[identity.ClientTypeKey].GetLimit(rateLimitPeriod);
                 if (limit > 0)
                 {
                     rateLimit = limit;

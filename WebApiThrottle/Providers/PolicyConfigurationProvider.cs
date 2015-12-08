@@ -21,7 +21,8 @@ namespace WebApiThrottle
             var settings = new ThrottlePolicySettings()
             {
                 IpThrottling = policyConfig.IpThrottling,
-                ClientThrottling = policyConfig.ClientThrottling,
+                ClientTypeThrottling = policyConfig.ClientTypeThrottling,
+                UserIdThrottling = policyConfig.UserIdThrottling,
                 EndpointThrottling = policyConfig.EndpointThrottling,
                 StackBlockedRequests = policyConfig.StackBlockedRequests,
                 LimitPerSecond = policyConfig.LimitPerSecond,
