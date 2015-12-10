@@ -43,8 +43,9 @@ namespace WebApiThrottle.RedisRepository
         public async Task<ThrottleCounter> IncrementAndGetAsync(string id, TimeSpan expirationTime)
         {
             IDatabase db = mux.GetDatabase();
-            string startTimeKey = id + "-start";
-            string countKey = id + "-count";
+            string key = id + (int) expirationTime.TotalSeconds;
+            string startTimeKey = key + "-start";
+            string countKey = key + "-count";
 
             long startTimeTicks;
             long count;
