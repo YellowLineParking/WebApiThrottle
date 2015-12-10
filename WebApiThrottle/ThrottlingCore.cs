@@ -17,6 +17,8 @@ namespace WebApiThrottle
     /// </summary>
     internal static class ThrottlingCore
     {
+        private static int StartTicks = Environment.TickCount;
+
         public class ThrottleDecision
         {
             public long RateLimit { get; set; }
@@ -64,6 +66,18 @@ namespace WebApiThrottle
             Func<RateLimitPeriod, long> getAdjustedLimitForPeriod,
             IThrottleLogger logger)
         {
+            // After a service restart (e.g., slot swaps, or server farm maintenance, or any
+            // of the myriad random reasons ASP.NET apps might restart in Azure) we often get
+            // a large number of backed up requests in quick succession, giving us the impression
+            // of high usage rates. We can't tell when the requests really originated, because
+            // they may have been queued up in parts of the system we can't see.
+            // so for the first 20s after a restart we don't track requests at all.
+            int ticksSinceAppdomainStarted = Environment.TickCount - StartTicks;
+            if (ticksSinceAppdomainStarted > 0 && ticksSinceAppdomainStarted < 20000)
+            {
+                return null;
+            }
+
             // get policy from repo
             if (policyRepository != null)
             {
