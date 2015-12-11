@@ -1,5 +1,8 @@
 ﻿using Microsoft.Owin;
+using System;
+using System.Collections.Generic;
 using System.Net;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace WebApiThrottle
@@ -7,7 +10,7 @@ namespace WebApiThrottle
     public class ThrottlingMiddleware : OwinMiddleware
     {
         private readonly IPolicyRepository policyRepository;
-        private ThrottlePolicy policy;
+        private readonly ThrottlePolicy policy;
         private readonly IThrottleRepository throttleRepository;
         private readonly IThrottleLogger logger;
 
@@ -28,9 +31,9 @@ namespace WebApiThrottle
         /// Persists the policy object in cache using <see cref="IPolicyRepository"/> implementation.
         /// The policy object can be updated by <see cref="ThrottleManager"/> at runtime. 
         /// </summary>
-        /// <remarks>
+        /// <param name="next">
         /// Next OWIN middleware handler in chain.
-        /// </remarks>
+        /// </param>
         /// <param name="policy">
         /// The policy.
         /// </param>
@@ -89,7 +92,7 @@ namespace WebApiThrottle
                 policy,
                 throttleRepository,
                 null,
-                ThrottlingCore.GetIdentity(request, IncludeHeaderInClientKey),
+                ThrottlingCore.GetIdentity(request, GetClientType),
                 _ => 0,
                 logger);
 
@@ -115,9 +118,23 @@ namespace WebApiThrottle
             return;
         }
 
-        protected virtual bool IncludeHeaderInClientKey(string headerName)
+        /// <summary>
+        /// Override to determine the client type key for a request.
+        /// </summary>
+        /// <param name="identity">
+        /// The ClaimsIdentity for the user, or null if there isn't one.
+        /// </param>
+        /// <param name="headers">
+        /// Makes the request headers available.
+        /// </param>
+        /// <returns>
+        /// The ClientTypeKey for this request.
+        /// </returns>
+        protected virtual string GetClientType(
+            ClaimsIdentity identity,
+            Lazy<IDictionary<string, string[]>> headers)
         {
-            return ThrottlingCore.IncludeDefaultClientKeyHeaders(headerName);
+            return ThrottlingCore.DefaultClientTypeFinder(identity, headers);
         }
     }
 }

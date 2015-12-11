@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -81,6 +83,7 @@ namespace WebApiThrottle
         /// </summary>
         public HttpStatusCode QuotaExceededResponseCode { get; set; }
 
+        /// <inheritdoc/>
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             ThrottlingCore.ThrottleDecision decision = await ThrottlingCore.ProcessRequest(
@@ -88,7 +91,7 @@ namespace WebApiThrottle
                 policy,
                 throttleRepository,
                 request,
-                ThrottlingCore.GetIdentity(request, IncludeHeaderInClientKey),
+                ThrottlingCore.GetIdentity(request, GetClientType),
                 _ => 0,
                 Logger);
 
@@ -113,9 +116,23 @@ namespace WebApiThrottle
                 decision.RetryAfter);
         }
 
-        protected virtual bool IncludeHeaderInClientKey(string headerName)
+        /// <summary>
+        /// Override to determine the client type key for a request.
+        /// </summary>
+        /// <param name="identity">
+        /// The ClaimsIdentity for the user, or null if there isn't one.
+        /// </param>
+        /// <param name="headers">
+        /// Makes the request headers available.
+        /// </param>
+        /// <returns>
+        /// The ClientTypeKey for this request.
+        /// </returns>
+        protected virtual string GetClientType(
+            ClaimsIdentity identity,
+            Lazy<IDictionary<string, string[]>> headers)
         {
-            return ThrottlingCore.IncludeDefaultClientKeyHeaders(headerName);
+            return ThrottlingCore.DefaultClientTypeFinder(identity, headers);
         }
 
 

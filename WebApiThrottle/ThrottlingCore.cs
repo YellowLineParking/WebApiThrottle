@@ -164,26 +164,24 @@ namespace WebApiThrottle
             return null;
         }
 
-
-
-        internal static bool IncludeDefaultClientKeyHeaders(string headerName)
+        internal static string DefaultClientTypeFinder(
+            ClaimsIdentity identity,
+            Lazy<IDictionary<string, string[]>> headers)
         {
             // Note: Stefan Prodan's original used "Authorization-Token" as the default header
             // from which the ClientKey was calculated. But that's not a standard HTTP header.
             // So I've changed this to Authorization, which is used for all standard auth,
             // including OAuth 2.
-            return headerName == "Authorization";
+            return headers.Value.ContainsKey("Authorization") ? "authenticateduser" : "anon";
         }
 
-        internal static RequestIdentity GetIdentity(HttpRequestMessage request, Func<string, bool> includeHeaderInClientKey)
+        internal static RequestIdentity GetIdentity(
+            HttpRequestMessage request,
+            Func<ClaimsIdentity, Lazy<IDictionary<string, string[]>>, string> makeClientTypeKey)
         {
             var entry = new RequestIdentity();
             entry.ClientIp = GetClientIp(request).ToString();
             entry.Endpoint = request.RequestUri.AbsolutePath.ToLowerInvariant();
-            entry.ClientTypeKey = request.Headers
-                .Where(h => includeHeaderInClientKey(h.Key))
-                .Aggregate(default(string), (k, h) => k + h.Value.First())
-                ?? "anon";
 
             ClaimsIdentity identity;
             object owinContextObj;
@@ -203,18 +201,22 @@ namespace WebApiThrottle
                 entry.UserName = identity.Name;
             }
 
+            var headers = new Lazy<IDictionary<string, string[]>>(() => request.Headers.ToDictionary(
+                h => h.Key, h => h.Value.ToArray()));
+            entry.ClientTypeKey = makeClientTypeKey(
+                identity,
+                headers);
+
             return entry;
         }
 
-        internal static RequestIdentity GetIdentity(IOwinRequest request, Func<string, bool> includeHeaderInClientKey)
+        internal static RequestIdentity GetIdentity(
+            IOwinRequest request,
+            Func<ClaimsIdentity, Lazy<IDictionary<string, string[]>>, string> makeClientTypeKey)
         {
             var entry = new RequestIdentity();
             entry.ClientIp = request.RemoteIpAddress;
             entry.Endpoint = request.Uri.AbsolutePath.ToLowerInvariant();
-            entry.ClientTypeKey = request.Headers
-                .Where(h => includeHeaderInClientKey(h.Key))
-                .Aggregate(default(string), (k, h) => k + h.Value.First())
-                ?? "anon";
 
             ClaimsIdentity identity = request.User?.Identity as ClaimsIdentity;
             if (identity != null)
@@ -222,6 +224,11 @@ namespace WebApiThrottle
                 entry.UserId = identity.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
                 entry.UserName = identity.Name;
             }
+
+            var headers = new Lazy<IDictionary<string, string[]>>(() => request.Headers);
+            entry.ClientTypeKey = makeClientTypeKey(
+                identity,
+                headers);
 
             return entry;
         }

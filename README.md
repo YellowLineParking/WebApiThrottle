@@ -1,6 +1,52 @@
 WebApiThrottle
 ==============
 
+This fork of Stefan Prodan's WebApiThrottle adds support for throttling across server farms.
+The original library did not work well in this scenario for two reasons. First, it relied on
+`DateTime.UtcNow` to determine whether request limits had been exceeded, and this is not
+dependable in Azure App Service environments which make no guarantees about clock synchronization,
+and where multiple seconds of drift are common. (The library supports per-second throttling,
+which would require clocks to be synchronized to withou a small fraction of a second to work
+across server farms.) Second, its storage model for throttle counters was not amenable to
+concurrent use: it used separate read and update steps, relying on a process-wide lock to
+ensure consistency, an approach which is unworkable in a server farm.
+
+This fork modifies the throttle repository API to provide an atomic read-and-modify operation
+that removes the global lock previously required. It also pushes responsibilty for
+timekeeping into the storage provider, preventing problems caused by clock drift across
+web servers.
+
+I've updated the existing throttle store providers to the new model, but these all worked
+in-memory, so they all continue only to work on single-server systems. But I've added one
+new storage implementation that works for server farms. It runs on top of a Redis cache.
+The Redis cache becomes responsible for the timing measurements required to enforce
+throttling policies. (In particular, we rely on Redis's ability to expire entries
+automatically after a particular duration.)
+
+I've also modified the model used for distinguishing between clients. The original library
+was able to discriminate between different types of clients based on the presence of
+particular headers in the HTTP request. But it seemed to want non-standard headers, and
+it relied on the client being honest about which headers it set, which is not very secure.
+It also conflated distinctions between particular users, and distinctions between kinds of
+users into a single property. This is unhelpful if you want to assign different policy rules
+to different types of users, but to use the user identity to ensure each user is throttled
+in isolation.
+
+So I've split this out - you can indicate that throttling should be done independently for
+each User ID, and you can also define different rules based on the client type. And rather
+than trusting the client to provide its identity and type, we now have a model where the
+User ID can be extracted from a ClaimsIdentity associated with the request (which
+will work with any authentication mechanisms that uses this model) and there's an
+extensibility mechanism allowing applications to determine the client type either from the
+ClaimsIdentity or the request headers. Since code makes the decision at runtime, it no
+longer needs to be reliant on a simplistic check for the presence of headers. (E.g.,
+it's possible to check the Authorization header for a correctly signed token, and to
+then extract, say, the user's groups from that to determine client type. Or you can just
+look at the claims if the token has already been processed upstream by an existing
+authentication component.)
+
+Original docs follow...
+
 ASP.NET Web API Throttling handler, OWIN middleware and filter are designed to control the rate of requests that clients 
 can make to a Web API based on IP address, client API key and request route. 
 WebApiThrottle package is available on NuGet at [nuget.org/packages/WebApiThrottle](https://www.nuget.org/packages/WebApiThrottle/).

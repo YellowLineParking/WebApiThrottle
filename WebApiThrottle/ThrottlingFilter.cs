@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security.Claims;
 using System.Web.Http.Controllers;
 using System.Web.Http.Filters;
 
@@ -95,7 +97,7 @@ namespace WebApiThrottle
                     policy,
                     throttleRepository,
                     actionContext.Request,
-                    ThrottlingCore.GetIdentity(actionContext.Request, IncludeHeaderInClientKey),
+                    ThrottlingCore.GetIdentity(actionContext.Request, GetClientType),
                     rateLimitPeriod => attrPolicy.GetLimit(rateLimitPeriod),
                     logger).Result;
 
@@ -121,9 +123,23 @@ namespace WebApiThrottle
             base.OnActionExecuting(actionContext);
         }
 
-        protected virtual bool IncludeHeaderInClientKey(string headerName)
+        /// <summary>
+        /// Override to determine the client type key for a request.
+        /// </summary>
+        /// <param name="identity">
+        /// The ClaimsIdentity for the user, or null if there isn't one.
+        /// </param>
+        /// <param name="headers">
+        /// Makes the request headers available.
+        /// </param>
+        /// <returns>
+        /// The ClientTypeKey for this request.
+        /// </returns>
+        protected virtual string GetClientType(
+            ClaimsIdentity identity,
+            Lazy<IDictionary<string, string[]>> headers)
         {
-            return ThrottlingCore.IncludeDefaultClientKeyHeaders(headerName);
+            return ThrottlingCore.DefaultClientTypeFinder(identity, headers);
         }
 
         protected virtual HttpResponseMessage QuotaExceededResponse(HttpRequestMessage request, object content, HttpStatusCode responseCode, string retryAfter)

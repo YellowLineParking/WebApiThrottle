@@ -1,4 +1,8 @@
-﻿namespace WebApiThrottle.Demo.Helpers
+﻿using System;
+using System.Collections.Generic;
+using System.Security.Claims;
+
+namespace WebApiThrottle.Demo.Helpers
 {
     public class CustomThrottlingFilter : ThrottlingFilter
     {
@@ -8,9 +12,14 @@
             this.QuotaExceededMessage = "API calls quota exceeded! maximum admitted {0} per {1}.";
         }
 
-        protected override bool IncludeHeaderInClientKey(string headerName)
+        protected override string GetClientType(ClaimsIdentity identity, Lazy<IDictionary<string, string[]>> headers)
         {
-            return headerName == "Authorization-Key";
+            string[] result;
+            if (headers.Value.TryGetValue("Authorization-Key", out result))
+            {
+                return result[0];
+            }
+            return "anon";
         }
     }
 }
