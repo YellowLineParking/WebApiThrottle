@@ -34,10 +34,12 @@ namespace WebApiThrottle.RedisRepository
     public class RedisThrottleRepository : IThrottleRepository
     {
         private IConnectionMultiplexer mux;
+        private bool _handleNoRedisConnection;
 
-        public RedisThrottleRepository(IConnectionMultiplexer multiplexer)
+        public RedisThrottleRepository(IConnectionMultiplexer multiplexer, bool handleNoRedisConnection)
         {
             mux = multiplexer;
+            _handleNoRedisConnection = handleNoRedisConnection;
         }
 
         public async Task<ThrottleCounter> IncrementAndGetAsync(string id, TimeSpan expirationTime)
@@ -83,6 +85,18 @@ namespace WebApiThrottle.RedisRepository
                     Timestamp = DateTime.UtcNow,
                     TotalRequests = 1
                 };
+            }
+            catch (RedisConnectionException)
+            {
+                // Redis is down
+                if (_handleNoRedisConnection)
+                    return new ThrottleCounter
+                    {
+                        Timestamp = DateTime.UtcNow,
+                        TotalRequests = 1
+                    };
+
+                throw;
             }
         }
     }
